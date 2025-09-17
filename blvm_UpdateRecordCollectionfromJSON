@@ -1,0 +1,95 @@
+public class blvm_UpdateRecordCollectionfromJSON {
+    
+    // Updates a collection of records by applying values from a JSON list in sequential order
+    public static List<SObject> applyJsonToRecords(List<SObject> records, String jsonInput) {
+        
+        // example JSON input (each item can have different keys)
+        // [
+        //   {
+        //     "SBQQ__Quantity__c": 10,
+        //     "SBQQ__Discount__c": 15.5,
+        //   },
+        //   {
+        //     "SBQQ__Quantity__c": 2,
+        //     "SBQQ__Optional__c": true,
+        //   }
+        // ]
+
+        List<SObject> recordsToUpdate = records;
+        String jsonPayload = jsonInput;
+
+        if (recordsToUpdate == null || recordsToUpdate.isEmpty() || String.isBlank(jsonPayload)) {
+            return null;
+        }
+
+        try {
+            // deserialize JSON
+            List<Object> jsonItems = (List<Object>) JSON.deserializeUntyped(jsonPayload);
+
+            // determine the iteration count
+            Integer loopLimit = Math.min(recordsToUpdate.size(), jsonItems.size());
+
+            // iterate and apply values by index
+            for (Integer i = 0; i < loopLimit; i++) {
+
+                SObject record = recordsToUpdate.get(i);
+                Map<String, Object> recordDataMap = (Map<String, Object>) jsonItems.get(i);
+                
+                Map<String, Schema.SObjectField> fieldMap = record.getSObjectType().getDescribe().fields.getMap();
+
+                for (String fieldApiName : recordDataMap.keySet()) {
+                    
+                    if (fieldMap.containsKey(fieldApiName)) {
+                        Schema.DescribeFieldResult fieldDescribe = fieldMap.get(fieldApiName).getDescribe();
+                        Object rawValue = recordDataMap.get(fieldApiName);
+                        Object convertedValue = convertValueToType(rawValue, fieldDescribe.getType());
+                        record.put(fieldApiName, convertedValue);
+                    } else {
+                         System.debug(LoggingLevel.WARN, 'GenericRecordUpdater: Field ' + fieldApiName + ' not found on object ' + record.getSObjectType() + '. Skipping.');
+                    }
+                }
+            }
+            
+            return recordsToUpdate;
+
+        } catch (Exception e) {
+            throw new AuraHandledException('Error in record updater: ' + e.getMessage());
+        }
+    }
+
+    private static Object convertValueToType(Object rawValue, Schema.DisplayType targetType) {
+        if (rawValue == null) {
+            return null;
+        }
+        
+        try {
+            switch on targetType {
+                when DOUBLE, CURRENCY, PERCENT {
+                    return Decimal.valueOf(String.valueOf(rawValue));
+                }
+                when INTEGER {
+                    if (rawValue instanceof Decimal) {
+                         return ((Decimal) rawValue).intValue();
+                    }
+                    return Integer.valueOf(String.valueOf(rawValue));
+                }
+                when BOOLEAN {
+                    return Boolean.valueOf(String.valueOf(rawValue));
+                }
+                when DATE {
+                    return Date.valueOf(String.valueOf(rawValue));
+                }
+                when DATETIME {
+                    return Datetime.valueOf(String.valueOf(rawValue));
+                }
+                when else {
+                    return String.valueOf(rawValue);
+                }
+            }
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR, 'Failed to convert value "' + rawValue + '" to type ' + targetType + '. Error: ' + e.getMessage());
+            return null;
+        }
+    }
+
+}
