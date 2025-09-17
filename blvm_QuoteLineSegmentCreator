@@ -1,0 +1,103 @@
+/**************************************************************************
+ * @description A utility class for handling custom quote line item logic.
+ * This class contains methods for creating custom-segmented quote lines
+ * from JSON input, validating data, and calculating pricing.
+ * @date 2025-08-13
+ **************************************************************************/
+public class blvm_QuoteLineSegmentCreator {
+
+    public class QuoteLineItemWrapper {
+        public Date endDate;
+        public Date startDate;
+        public Decimal uplift;
+        public Decimal discount;
+        public Decimal quantity;
+        public Integer subscriptionTerm;
+    }
+
+    /**
+     * @description Creates multiple SBQQ__QuoteLine__c records by deserializing JSON segment data.
+     * This method is designed to be called from a Flow or Agent Action.
+     * @param jsonInput List containing a single JSON string representing an array of segment data.
+     * @param quoteId List containing the ID of the parent Quote.
+     * @param productId List containing the ID of the Product for these segments.
+     * @return List<SBQQ__QuoteLine__c> A list of the newly created Quote Line records.
+     * @date 2025-08-13
+     */
+
+    public static list<SBQQ__QuoteLine__c> createQuoteLineItems(String jsonInput, Id quoteId, Id productId) {
+        // First, replace JSON keys with matching variable names
+        String mappedJson = jsonInput
+            .replace('"SBQQ__EndDate__c"', '"endDate"')
+            .replace('"SBQQ__StartDate__c"', '"startDate"')
+            .replace('"SBQQ__Uplift__c"', '"uplift"')
+            .replace('"SBQQ__Discount__c"', '"discount"')
+            .replace('"SBQQ__Quantity__c"', '"quantity"')
+            .replace('"SBQQ__SubscriptionTerm__c"', '"subscriptionTerm"');
+
+        // Deserialize
+        List<QuoteLineItemWrapper> wrapperList = 
+            (List<QuoteLineItemWrapper>) JSON.deserialize(mappedJson, List<QuoteLineItemWrapper>.class);
+
+        //Get Price Dimension Record
+        List<SBQQ__Dimension__c> priceDimensionList = [SELECT Id, SBQQ__Product__c, SBQQ__Type__c FROM SBQQ__Dimension__c WHERE SBQQ__Product__c = :productId];
+
+        List<SBQQ__QuoteLine__c> qliList = new List<SBQQ__QuoteLine__c>();
+		Boolean requestWithoutSegment = false;
+        Integer counter = 1;
+        for (QuoteLineItemWrapper wrap : wrapperList) {
+            if(wrap.startDate == null && wrap.endDate == null && wrap.subscriptionTerm == null) {
+                requestWithoutSegment = true;
+            }
+            SBQQ__QuoteLine__c qli = new SBQQ__QuoteLine__c();
+            qli.SBQQ__Quote__c     = quoteId;
+            qli.SBQQ__Product__c   = productId;
+            qli.SBQQ__EndDate__c   = wrap.endDate;
+            qli.SBQQ__StartDate__c = wrap.startDate;
+            qli.SBQQ__Uplift__c    = wrap.uplift;
+            qli.SBQQ__Discount__c  = wrap.discount;
+            qli.SBQQ__Quantity__c  = wrap.quantity;
+            qli.SBQQ__Dimension__c = priceDimensionList != null && priceDimensionList.size() > 0 ? priceDimensionList[0].Id : null;
+            if (priceDimensionList != null && !priceDimensionList.isEmpty()){
+            qli.SBQQ__SegmentIndex__c = counter;
+            qli.SBQQ__SegmentKey__c = '175565328956';
+            qli.SBQQ__SegmentLabel__c = 'SEGMENT '+ counter;
+        }
+
+            qliList.add(qli);
+            counter++;
+        }
+        
+        if(requestWithoutSegment) {
+            return new List<SBQQ__QuoteLine__c>();
+        }
+        return qliList;
+        
+        
+    }
+
+
+    // Wrapper class to hold segment data
+    public class CustomQuoteSegment {
+        @InvocableVariable(required=true) 
+        public Id productId;
+        
+        @InvocableVariable(required=true) 
+        public Id quoteId;
+        
+        @InvocableVariable(required=true) 
+        public Decimal quantity;
+        
+        @InvocableVariable(required=true) 
+        public Decimal discount;
+        
+        @InvocableVariable(required=true) 
+        public Date startDate;
+        
+        @InvocableVariable(required=true) 
+        public Date endDate;
+    }
+    
+    
+
+}
