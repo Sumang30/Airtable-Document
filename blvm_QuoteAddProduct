@@ -1,0 +1,141 @@
+public class blvm_QuoteAddProduct {
+    
+     /**
+     * @description Defines the input parameters for the Flow Action.
+     */
+    public class FlowRequest {
+        @InvocableVariable(label='Quote ID' description='The ID of the Quote to add the product to.' required=true)
+        public Id quoteId;
+
+        @InvocableVariable(label='Product ID' description='The ID of the Product to add.' required=true)
+        public Id productId;
+
+        @InvocableVariable(label='Pricebook ID' description='The ID of the Pricebook for the quote and product.' required=true)
+        public Id pricebookId;
+
+        @InvocableVariable(label='Currency ISO Code' description='The 3-letter currency ISO code (e.g., USD, EUR).' required=true)
+        public String currencyCode;
+    }
+
+    /**
+     * @description Defines the output parameters for the Flow Action.
+     */
+    public class FlowResponse {
+        @InvocableVariable(label='New Quote Line ID' description='The ID of the newly created Quote Line record.')
+        public Id newQuoteLineId;
+    }
+
+    @InvocableMethod(label='Add CPQ Product to Quote' description='Adds a specified product to a Salesforce CPQ Quote and returns the new Quote Line ID.' category='CPQ')
+    public static List<FlowResponse> addProductToQuote(List<FlowRequest> requests) {
+        List<FlowResponse> responses = new List<FlowResponse>();
+        
+        // Even though the Flow sends a list, it typically processes one request at a time.
+        // Looping through the list is best practice.
+        for (FlowRequest req : requests) {
+            FlowResponse res = new FlowResponse();
+            try {
+                
+                 System.debug('Quote ID: ' + req.quoteId);
+                System.debug('Product ID: ' + req.productId);
+                System.debug('Pricebook ID: ' + req.pricebookId);
+                System.debug('Currency Code: ' + req.currencyCode);
+
+                // 1. Read the initial Quote model to get the existing line IDs
+                String initialQuoteModelJSON = SBQQ.ServiceRouter.read('SBQQ.QuoteAPI.QuoteReader', req.quoteId);
+                 System.debug('Initial Quote Model JSON: ' + initialQuoteModelJSON);
+                Set<Id> initialLineIds = getLineIdsFromQuoteModel(initialQuoteModelJSON);
+                System.debug('Initial Quote Line IDs: ' + initialLineIds);
+
+                // 2. Load the product model to be added
+                String productModelJSON = SBQQ.ServiceRouter.load('SBQQ.ProductAPI.ProductLoader', req.productId, 
+                    '{"pricebookId" : "' + req.pricebookId + '", "currencyCode" : "' + req.currencyCode + '"}');
+                System.debug('Loaded Product Model JSON: ' + productModelJSON);
+
+                // 3. Load the quote model with the new product added (but not saved yet)
+                // The 'ignoreCalculate' parameter prevents immediate calculation, which can be done later in a separate step if needed.
+                String updatedQuoteModelJSON = SBQQ.ServiceRouter.load('SBQQ.QuoteAPI.QuoteProductAdder', null, 
+                    '{"quote" : ' + initialQuoteModelJSON + ', "products" : [' + productModelJSON + '], "ignoreCalculate" : true}');
+                System.debug('Updated Quote Model JSON (before save): ' + updatedQuoteModelJSON);
+
+                // 4. Save the updated quote model
+                String savedQuoteModelJSON = SBQQ.ServiceRouter.save('SBQQ.QuoteAPI.QuoteSaver', updatedQuoteModelJSON);
+                 System.debug('Saved Quote Model JSON: ' + savedQuoteModelJSON);
+                
+                // 5. Find the ID of the newly created line
+                res.newQuoteLineId = findNewLineId(initialLineIds, savedQuoteModelJSON);
+                System.debug('Newly Created Quote Line ID: ' + res.newQuoteLineId);
+                responses.add(res);
+
+            } catch (Exception e) {
+                // If an error occurs, throw a Flow-friendly exception
+                throw new FlowException('Error adding product to quote: ' + e.getMessage());
+            }
+        }
+        
+        return responses;
+    }
+
+    /**
+     * @description Helper method to parse a quote model JSON and extract all quote line IDs.
+     * @param quoteModelJSON The JSON string representing the quote model.
+     * @return A Set of Ids of the quote lines.
+     */
+    private static Set<Id> getLineIdsFromQuoteModel(String quoteModelJSON) {
+        Set<Id> lineIds = new Set<Id>();
+        Map<String, Object> quoteModel = (Map<String, Object>) JSON.deserializeUntyped(quoteModelJSON);
+        if (quoteModel != null && quoteModel.containsKey('record')) {
+            Map<String, Object> record = (Map<String, Object>) quoteModel.get('record');
+            if (record != null && record.containsKey('SBQQ__LineItems__r')) {
+                Map<String, Object> lineItemsRel = (Map<String, Object>) record.get('SBQQ__LineItems__r');
+                if(lineItemsRel != null && lineItemsRel.containsKey('records')) {
+                    List<Object> lineItems = (List<Object>) lineItemsRel.get('records');
+                    for (Object line : lineItems) {
+                        Map<String, Object> lineMap = (Map<String, Object>) line;
+                        if (lineMap.containsKey('Id')) {
+                            lineIds.add((Id)lineMap.get('Id'));
+                        }
+                    }
+                }
+            }
+        }
+        return lineIds;
+    }
+
+    /**
+     * @description Helper method to find the new quote line ID by comparing the initial set of IDs
+     * with the lines in the final saved quote model.
+     * @param initialLineIds A Set of quote line IDs that existed before the add operation.
+     * @param savedQuoteModelJSON The JSON string of the quote model after saving.
+     * @return The Id of the new quote line, or null if not found.
+     */
+    private static Id findNewLineId(Set<Id> initialLineIds, String savedQuoteModelJSON) {
+        Map<String, Object> savedQuoteModel = (Map<String, Object>) JSON.deserializeUntyped(savedQuoteModelJSON);
+        if (savedQuoteModel != null && savedQuoteModel.containsKey('record')) {
+            Map<String, Object> record = (Map<String, Object>) savedQuoteModel.get('record');
+            // The structure of the saved model is slightly different from the read model for line items.
+            if (record != null && record.containsKey('lineItems')) {
+                List<Object> lineItems = (List<Object>) record.get('lineItems');
+                 for (Object line : lineItems) {
+                    Map<String, Object> lineMap = (Map<String, Object>) line;
+                    if (lineMap.containsKey('record')) {
+                         Map<String, Object> lineRecord = (Map<String, Object>) lineMap.get('record');
+                         Id currentLineId = (Id)lineRecord.get('Id');
+                         System.debug('Evaluating Line ID: ' + currentLineId);
+                         // If we find a line ID that was not in our initial set, this is the new line.
+                         if (!initialLineIds.contains(currentLineId)) {
+                             System.debug('Identified New Line ID: ' + currentLineId);
+                             return currentLineId;
+                         }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @description Custom exception class to communicate errors back to the calling Flow.
+     */
+    public class FlowException extends Exception {}
+
+}
