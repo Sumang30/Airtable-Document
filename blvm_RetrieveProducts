@@ -1,0 +1,107 @@
+public class blvm_RetrieveProducts {
+
+    public class ProductSearchResult {
+        @AuraEnabled public String Product;
+        @AuraEnabled public Integer MatchCount;
+        @AuraEnabled public List<ProductMatch> Matches;
+
+        public ProductSearchResult(String product) {
+            this.Product = product;
+            this.Matches = new List<ProductMatch>();
+            this.MatchCount = 0;
+        }
+    }
+
+    public class ProductMatch {
+        @AuraEnabled public String Name;
+        @AuraEnabled public String ProductCode;
+        @AuraEnabled public String Id;
+
+        public ProductMatch(Product2 p) {
+            this.Name = p.Name;
+            this.ProductCode = p.ProductCode;
+            this.Id = p.Id;
+        }
+    }
+
+    @InvocableMethod(label='BLVM Retrieve Products' description='Searches for products based on ATQ_ProductResultsGroup__c or keywords.')
+    public static List<String> findProducts(List<String> requests) {
+        if(requests == null || requests.isEmpty() || String.isBlank(requests[0])) {
+            return new List<String>{'[]'};
+        }
+
+        List<String> searchTerms = new List<String>();
+        for(String term : requests[0].split(',')) {
+            String trimmedTerm = term.trim();
+            if(String.isNotBlank(trimmedTerm)) searchTerms.add(trimmedTerm);
+        }
+        if(searchTerms.isEmpty()) return new List<String>{'[]'};
+
+        Map<String, ProductSearchResult> resultsMap = new Map<String, ProductSearchResult>();
+        for(String term : searchTerms) {
+            resultsMap.put(term, new ProductSearchResult(term));
+        }
+
+        for(String term : searchTerms) {
+            List<Product2> matchingProducts = new List<Product2>();
+
+            // 🔹 Rule 1: Clean keywords like "Plan"/"SKU" if present
+            String cleanedTerm = term.replaceAll('(?i)\\b(plan|sku)\\b', '').trim();
+
+            // 🔹 Step 1: Try to get products by ATQ_ProductResultsGroup__c
+            List<Product2> groupProducts = [
+                SELECT Id, Name, ProductCode, ATQ_ProductCategory__c, ATQ_ProductResultsGroup__c
+                FROM Product2
+                WHERE ATQ_ProductResultsGroup__c = :cleanedTerm
+                AND IsActive = true
+                AND SBQQ__Component__c = false
+            ];
+            matchingProducts.addAll(groupProducts);
+
+            // 🔹 Step 2: If no group match, try exact Name match
+            if(groupProducts.isEmpty()) {
+                List<Product2> exactProducts = [
+                    SELECT Id, Name, ProductCode, ATQ_ProductCategory__c
+                    FROM Product2
+                    WHERE IsActive = true
+                    AND SBQQ__Component__c = false
+                    AND Name = :term
+                ];
+
+                if(!exactProducts.isEmpty()) {
+                    matchingProducts.addAll(exactProducts);
+                } else {
+                    // 🔹 Step 3: Fallback to LIKE search
+                    String sanitizedTerm = '%' + String.escapeSingleQuotes(term) + '%';
+                    String soqlQuery = 'SELECT Id, Name, ProductCode, ATQ_ProductCategory__c ' +
+                                       'FROM Product2 ' +
+                                       'WHERE IsActive = true ' +
+                                       'AND SBQQ__Component__c = false ' +
+                                       'AND (Name LIKE \'' + sanitizedTerm + '\' OR ProductCode LIKE \'' + sanitizedTerm + '\')';
+
+                    matchingProducts.addAll((List<Product2>)Database.query(soqlQuery));
+                }
+            }
+
+            // 🔹 Remove duplicates
+            Map<Id, Product2> uniqueProducts = new Map<Id, Product2>();
+            for(Product2 p : matchingProducts) {
+                uniqueProducts.put(p.Id, p);
+            }
+
+            // 🔹 Store results
+            for(Product2 p : uniqueProducts.values()) {
+                resultsMap.get(term).Matches.add(new ProductMatch(p));
+            }
+            resultsMap.get(term).MatchCount = resultsMap.get(term).Matches.size();
+        }
+
+        // Build final results list in original order
+        List<ProductSearchResult> finalResults = new List<ProductSearchResult>();
+        for(String term : searchTerms) {
+            finalResults.add(resultsMap.get(term));
+        }
+
+        return new List<String>{JSON.serializePretty(finalResults)};
+    }
+}
