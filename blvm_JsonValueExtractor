@@ -1,0 +1,152 @@
+public class blvm_JsonValueExtractor {
+     public class JsonRequest {
+        @InvocableVariable(label='JSON Content' description='The string content of the JSON to be parsed.' required=true)
+        public String jsonContent;
+
+        @InvocableVariable(label='Keys to Extract (comma-delimited)' description='A comma-delimited list of JSON keys whose values should be extracted. Max 10 keys are supported.' required=true)
+        public String keysToExtract;
+    }
+
+    public class JsonResult {
+        @InvocableVariable(label='Value 1' description='Extracted value for the first key.')
+        public String value1;
+        @InvocableVariable(label='Value 2' description='Extracted value for the second key.')
+        public String value2;
+        @InvocableVariable(label='Value 3' description='Extracted value for the third key.')
+        public String value3;
+        @InvocableVariable(label='Value 4' description='Extracted value for the fourth key.')
+        public String value4;
+        @InvocableVariable(label='Value 5' description='Extracted value for the fifth key.')
+        public String value5;
+        @InvocableVariable(label='Value 6' description='Extracted value for the sixth key.')
+        public String value6;
+        @InvocableVariable(label='Value 7' description='Extracted value for the seventh key.')
+        public String value7;
+        @InvocableVariable(label='Value 8' description='Extracted value for the eighth key.')
+        public String value8;
+        @InvocableVariable(label='Value 9' description='Extracted value for the ninth key.')
+        public String value9;
+        @InvocableVariable(label='Value 10' description='Extracted value for the tenth key.')
+        public String value10;
+
+        // Constructor to initialize values to null or empty string
+        public JsonResult() {
+            this.value1 = null;
+            this.value2 = null;
+            this.value3 = null;
+            this.value4 = null;
+            this.value5 = null;
+            this.value6 = null;
+            this.value7 = null;
+            this.value8 = null;
+            this.value9 = null;
+            this.value10 = null;
+        }
+    }
+
+    @InvocableMethod(label='BLVM Extract JSON Values by Key' description='Parses a JSON string and extracts values for up to 10 specified keys.')
+    public static List<JsonResult> extractJsonValues(List<JsonRequest> requests) {
+        system.debug('method call extractJsonValues');
+        system.debug('Print requests' + requests);
+        List<JsonResult> results = new List<JsonResult>();
+
+        // This method is designed to be bulk-safe, but we will process the first valid request for simplicity.
+        if (requests == null || requests.isEmpty() || String.isBlank(requests[0].jsonContent) || String.isBlank(requests[0].keysToExtract)) {
+            // Return an empty result if there's no valid input to process.
+            results.add(new JsonResult()); // Return an empty result object to match method signature
+            System.debug(LoggingLevel.WARN, 'No valid JSON content or keys to extract provided.');
+            return results;
+        }
+
+        JsonRequest inputRequest = requests[0];
+        String jsonString = inputRequest.jsonContent;
+        List<String> keys = inputRequest.keysToExtract.split(',');
+
+        // Trim whitespace and remove empty strings from keys
+        List<String> cleanedKeys = new List<String>();
+        for (String key : keys) {
+            String trimmedKey = key.trim();
+            if (String.isNotBlank(trimmedKey)) {
+                cleanedKeys.add(trimmedKey);
+            }
+        }
+
+        // Validate the number of keys
+        final Integer MAX_KEYS = 10;
+        if (cleanedKeys.size() > MAX_KEYS) {
+            JsonResult errorResult = new JsonResult();
+            errorResult.value1 = 'Error: Exceeded ' + MAX_KEYS + ' keys.';
+            results.add(errorResult);
+            System.debug(LoggingLevel.ERROR, 'Error: Number of keys (' + cleanedKeys.size() + ') exceeds the maximum allowed (' + MAX_KEYS + ').');
+            return results;
+        }
+
+        JsonResult currentResult = new JsonResult();
+        try {
+            // Deserialize the JSON string into a generic Object (Map or List)
+            Object deserializedJson = JSON.deserializeUntyped(jsonString);
+
+            // Attempt to treat the deserialized JSON as a Map for key-value extraction
+            Map<String, Object> jsonMap = (Map<String, Object>) deserializedJson;
+
+            // Iterate through the cleaned keys and extract values
+            for (Integer i = 0; i < cleanedKeys.size(); i++) {
+                String keyToExtract = cleanedKeys[i];
+                Object extractedValue = jsonMap.get(keyToExtract);
+				system.debug('keyToExtract >>'+keyToExtract);
+                system.debug('extractedValue >>'+String.valueOf(extractedValue));
+                
+                String valueString = null;
+                if (extractedValue != null) {
+                    // Handle different JSON primitive types explicitly or use String.valueOf()
+                    if (extractedValue instanceof String) {
+                        valueString = (String) extractedValue;
+                    } else if (extractedValue instanceof Integer || extractedValue instanceof Decimal || extractedValue instanceof Long || extractedValue instanceof Double) {
+                        valueString = String.valueOf(extractedValue);
+                    } else if (extractedValue instanceof Boolean) {
+                        valueString = String.valueOf(extractedValue);
+                    } else {
+                        // For complex types (e.g., nested JSON objects/arrays), stringify them.
+                        // This might result in JSON strings within the output values.
+                        valueString = JSON.serialize(extractedValue);
+                    }
+                } else {
+                    // Key not found or value is null in JSON
+                    System.debug(LoggingLevel.WARN, 'Key "' + keyToExtract + '" not found or its value is null in the JSON.');
+                }
+				system.debug('valueString >>'+valueString);
+                system.debug('i >>'+i);
+                // Assign to the appropriate output variable (value1, value2, etc.)
+                // Use a switch or if-else if structure for assignment.
+                switch on i {
+                    when 0 { currentResult.value1 = valueString; }
+                    when 1 { currentResult.value2 = valueString; }
+                    when 2 { currentResult.value3 = valueString; }
+                    when 3 { currentResult.value4 = valueString; }
+                    when 4 { currentResult.value5 = valueString; }
+                    when 5 { currentResult.value6 = valueString; }
+                    when 6 { currentResult.value7 = valueString; }
+                    when 7 { currentResult.value8 = valueString; }
+                    when 8 { currentResult.value9 = valueString; }
+                    when 9 { currentResult.value10 = valueString; }
+                }
+            }
+
+        } catch (JSONException e) {
+            // Handle JSON parsing errors (e.g., invalid JSON format)
+            currentResult = new JsonResult(); // Reset in case partial assignment occurred
+            currentResult.value1 = 'Error: Invalid JSON format.';
+            System.debug(LoggingLevel.ERROR, 'Error parsing JSON: ' + e.getMessage() + ' JSON: ' + jsonString);
+        } catch (Exception e) {
+            // Catch any other unexpected errors during processing
+            currentResult = new JsonResult(); // Reset
+            currentResult.value1 = 'Error: An unexpected error occurred.';
+            System.debug(LoggingLevel.ERROR, 'An unexpected error occurred: ' + e.getMessage() + ' Stack Trace: ' + e.getStackTraceString());
+        }
+		system.debug('currentResult >>'+currentResult);
+        results.add(currentResult);
+        system.debug('results >>'+results);
+        return results;
+    }
+
+}
