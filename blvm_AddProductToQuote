@@ -1,0 +1,508 @@
+public class blvm_AddProductToQuote {
+    @InvocableMethod(label='CPQAgent - Add Product to Quote' description='Adds a product model to a quote model using JSON inputs.')
+    public static List<AddProductResponse> addProductToQuote(List<AddProductRequest> requests) {
+       List<AddProductResponse> resList = new List<AddProductResponse>();
+       
+        /***Below Code Added by blvm to get the dimession of products 26/8/2025** Code Started here **/
+        Boolean isId = false;
+        
+       // String quoteId; //New change
+        Set<String> prodIdSet = new Set<String>();
+            for (AddProductRequest re : requests) {
+                 
+                List<Object> productsProcess =(List<Object>)JSON.deserializeUntyped(re.quoteLineAssignments);
+                if(productsProcess != null){
+                    for(Object prodObj : productsProcess){
+                        Map<String, Object> prodInfo = (Map<String, Object>)prodObj;                                             
+                        
+                        String prodId = (String)prodInfo.get('Product');
+                        // Check if product looks like a Salesforce Id
+                        if (prodId != null && (prodId.length() == 15 || prodId.length() == 18) 
+                            && Pattern.matches('^[a-zA-Z0-9]+$', prodId)) {
+                            isId = true;
+                        }
+                        prodIdSet.add(prodId);
+                        system.debug(LOGGINGLEVEL.ERROR,'prodIdSet==>'+prodIdSet);
+                    }
+                }
+            }
+        
+        
+        list<Product2> prodList = new list<Product2>();
+        String soql = 'SELECT id, SBQQ__Type__c, SBQQ__Product__c FROM SBQQ__Dimension__c WHERE ';
+        String whereClause1 = ' SBQQ__Product__c IN :prodIdSet ';
+        String whereClause2 = ' SBQQ__Product__r.Name IN :prodIdSet ';
+        if(isId == true){
+            soql += whereClause1;
+            prodList = [SELECT id, Name FROM Product2 WHERE Id In: prodIdSet];
+        }else{
+            soql += whereClause2;
+            prodList = [SELECT id, Name FROM Product2 WHERE Name In: prodIdSet];
+        }
+        list<SBQQ__Dimension__c> dimenssionList = Database.query(soql);
+        Map<String, SBQQ__Dimension__c> prodIdVsDimessionMap = new Map<String, SBQQ__Dimension__c>();
+        if(dimenssionList != null){
+            for(SBQQ__Dimension__c  prodDimenssion :dimenssionList){
+                prodIdVsDimessionMap.put(prodDimenssion.SBQQ__Product__c, prodDimenssion);
+            }
+            system.debug(LOGGINGLEVEL.ERROR,'prodIdVsDimessionMap==>'+prodIdVsDimessionMap);
+        }
+        map<String, String> prodNameVsIdMap = new map<String, String>();
+        if(prodList != null && prodList.size() > 0){
+            for(Product2 pro :prodList){
+                prodNameVsIdMap.put(pro.Name, pro.Id);
+            }
+            system.debug(LOGGINGLEVEL.ERROR,'prodNameVsIdMap==>'+prodNameVsIdMap);
+        }
+        list<SBQQ__QuoteLine__c> updateQuoteLineList = new list<SBQQ__QuoteLine__c>();
+        /**Code End here **/
+          String quoteId;
+        
+        for (AddProductRequest req : requests) {
+            // 1. DESERIALIZE UNTYPED: Parse the JSON into a generic list of objects (maps).
+            // This avoids issues with serializing custom Apex types with generic Object
+            //properties.
+            //
+            //
+        	List<String> results = new List<String>();
+            List<Object> productsToProcess =(List<Object>)JSON.deserializeUntyped(req.quoteLineAssignments);
+            // 2. RETRIEVE THE EXISTING QUOTE *ONCE*.
+            quoteId =req.quoteId;
+            String quoteJSON = SBQQ.ServiceRouter.read('SBQQ.QuoteAPI.QuoteReader',req.quoteId);
+            blvm_QuoteModel updatedQuote = (blvm_QuoteModel)JSON.deserialize(quoteJSON,
+                                                                             blvm_QuoteModel.class);
+            
+                        
+            // 3. LOOP through each product from the deserialized list.
+            for (Object productObj : productsToProcess) {
+                // Cast the generic object to a map to access its properties.
+                Map<String, Object> productInfo = (Map<String, Object>)productObj;
+                // Extract the Product ID and the Segments list from the map.
+                String productId = (String)productInfo.get('Product');
+                
+                /***Below Code Added by blvm to check if productId contains Name of products 26/8/2025** Code Started here **/
+                	if (productId != null && (productId.length() == 15 || productId.length() == 18) 
+                            && Pattern.matches('^[a-zA-Z0-9]+$', productId)) {
+                                system.debug('productId contains Id');
+                         }else{
+                             productId = prodNameVsIdMap.get(productId);   
+                        }
+                /*Code end here*/
+                
+                List<Object> segments = (List<Object>)productInfo.get('Segments');
+                // --- STATE MANAGEMENT: Track line count before this iteration ---
+                Integer lineCountBeforeAdd = updatedQuote.lineItems.size();
+                // A. RETRIEVE THE PRODUCT TO ADD
+                blvm_ProductReader reader = new blvm_ProductReader();
+                blvm_ProductModel productModel = reader.read(productId, req.pricebookId,req.currencyCode);
+                List<blvm_ProductModel> products = new List<blvm_ProductModel>{ productModel
+                    };
+                        // B. ADD THE PRODUCT TO THE QUOTE MODEL
+                        AddProductsContext ctx = new AddProductsContext(updatedQuote, products, 0);
+                String returnQuoteJSON =
+                    SBQQ.ServiceRouter.load('SBQQ.QuoteAPI.QuoteProductAdder', null, JSON.serialize(ctx));
+                updatedQuote = (blvm_QuoteModel)JSON.deserialize(returnQuoteJSON,
+                                                                 blvm_QuoteModel.class);
+                // --- DELTA CALCULATION ---
+                Integer lineCountAfterAdd = updatedQuote.lineItems.size();
+                Integer linesAddedByEngine = lineCountAfterAdd - lineCountBeforeAdd;
+                // C. HANDLE QUOTE LINE SEGMENTATION
+                Integer numberOfSegments = segments.size();
+                System.debug('Segmentation Check: Segments=' + segments.size() + '; Lines added by product adder=' + linesAddedByEngine);
+                if (numberOfSegments > 1 && linesAddedByEngine == 1) {
+                    Segmentation segmentor = new Segmentation();
+                    SegmentationResult result = segmentor.segmentLines(
+                        updatedQuote.lineItems,
+                        lineCountBeforeAdd,
+                        updatedQuote.nextKey,
+                        numberOfSegments,
+                        prodIdVsDimessionMap
+                    );
+                    // 'Year' parameter removed and added 'prodIdVsDimessionMap' map by blvm
+                    updatedQuote.lineItems = result.lineModels;
+                    updatedQuote.nextkey = result.nextKey;
+                    System.debug('Segmentation completed');
+                }
+                // D. UPDATE FIELDS ON NEW QUOTE LINES
+                Integer lineCountAfterSegmentation = updatedQuote.lineItems.size();
+                Integer totalNewLinesForThisProduct = lineCountAfterSegmentation -
+                    lineCountBeforeAdd;
+                if (totalNewLinesForThisProduct > 0) {
+                    QuoteLineProcessor processor = new QuoteLineProcessor();
+                    // Serialize the segments list back to the JSON string that the processor expects. [cite: 6]
+                    String segmentValuesJson = JSON.serialize(segments);
+                    updatedQuote.lineItems = processor.updateSpecificLines(
+                        updatedQuote.lineItems,
+                        lineCountBeforeAdd,
+                        totalNewLinesForThisProduct,
+                        segmentValuesJson
+                    );
+                }
+            } // --- End of loop ---
+            // 4. CALCULATE AND SAVE the final quote model.
+            
+           try{
+            blvm_QuoteCalculator calculator = new blvm_QuoteCalculator();
+            calculator.calculate(updatedQuote, 'blvm_SaveAfterCalculateCallback');
+            }
+            catch(Exception exc){               
+                AddProductResponse resVar = new AddProductResponse();
+                resVar.results = new List<String>();
+                String errorMsg = exc.getMessage();
+                resVar.results.add(errorMsg);
+                resList.add(resVar);
+                System.debug('resList -----' + resList);
+                return resList;
+            }
+            
+           /*  blvm_QuoteCalculator calculator = new blvm_QuoteCalculator();
+            calculator.calculate(updatedQuote, 'blvm_SaveAfterCalculateCallback');*/
+        }
+
+        // New Change for product rule 
+         String quoteJSON = SBQQ.ServiceRouter.read('SBQQ.QuoteAPI.QuoteReader',quoteId);
+         blvm_QuoteModel quoteRecord = (blvm_QuoteModel)JSON.deserialize(quoteJSON,
+                                                                             blvm_QuoteModel.class);
+
+        
+         String res = SBQQ.ServiceRouter.load('SBQQ.QuoteAPI.QuoteValidator', null, JSON.serialize(quoteRecord));
+         //   performExternalCallout(quoteId);
+           system.debug(LOGGINGLEVEL.ERROR,'res==>'+res);            
+            if (res != null && res != '') {
+                System.debug('If loop Executed------');
+                List<String> deserializedList = (List<String>) JSON.deserialize(res, List<String>.class);
+                
+                AddProductResponse resVar = new AddProductResponse();
+                resVar.results = new List<String>();
+                resVar.results.addAll(deserializedList);
+                resList.add(resVar);
+                System.debug('resList -----' + resList);
+                return resList;
+            }   
+        return resList;
+    }
+    
+    public class ProductCollection {
+        // The key "QuoteLines" from the input JSON is mapped to this property.
+        public List<ProductToAdd> QuoteLines;
+    }
+    public class ProductToAdd {
+        // The "Product" Id (e.g., "01tKj00000PebyJIAR")
+        public String Product;
+        // A list of maps to hold segment data (e.g., Quantity, Discount)
+        public List<Map<String, Object>> Segments;
+    }
+    private class AddProductsContext {
+        private blvm_QuoteModel quote;
+        private blvm_ProductModel[] products;
+        private Integer groupKey;
+        private final Boolean ignoreCalculate = true; //Must be hardcoded to true
+        private AddProductsContext(blvm_QuoteModel quote, blvm_ProductModel[] products,
+                                   Integer groupKey) {
+                                       this.quote = quote;
+                                       this.products = products;
+                                       this.groupKey = groupKey;
+                                   }
+    }
+    private class QuoteLineProcessor {
+        private List<blvm_QuoteLineModel> updateSpecificLines(
+            List<blvm_QuoteLineModel> quoteModelLines,
+            Integer startIndex,
+            Integer numberOfNewLines,
+            String jsonCollection)
+        {
+            if (quoteModelLines == null || quoteModelLines.isEmpty() || startIndex <
+                0 || numberOfNewLines <= 0) {
+                    return quoteModelLines;
+                }
+            System.debug('start index: ' + startIndex);
+            System.debug('number of new lines: ' + numberOfNewLines);
+            System.debug('json collection: ' + jsonCollection);
+            Integer loopEnd = Math.min(startIndex + numberOfNewLines,
+                                       quoteModelLines.size());
+            Integer currentLineCount = quoteModelLines.size();
+            System.debug('loop end: ' + loopEnd);
+            Integer currentJsonIndex = 0;
+            SBQQ__QuoteLine__c line;
+            JsonExtractor extractor = new JsonExtractor();
+            UpdateRecordFromJSON updater = new UpdateRecordFromJSON();
+            for (Integer i = startIndex; i < loopEnd; i++) {
+                String jsonValues = extractor.extractJsonObjectFromArray(jsonCollection,
+                                                                         currentJsonIndex);
+                System.debug('extracted JSON line: ' + jsonValues);
+                currentJsonIndex++;
+                if (jsonValues <> null) {
+                    System.debug('quote line before updating values:' +
+                                 quoteModelLines.get(i).record);
+                    quoteModelLines.get(i).record = (SBQQ__QuoteLine__c)
+                        updater.applyJsonToRecord(quoteModelLines.get(i).record, jsonValues);
+                    System.debug('quote line after updating values:' +
+                                 quoteModelLines.get(i).record);
+                }
+            }
+            return quoteModelLines;
+        }
+    }
+    private class JsonExtractor {
+        private integer CalculateJsonCollectionSize(String jsonArrayString) {
+            List<Object> items = (List<Object>) JSON.deserializeUntyped(jsonArrayString);
+            return items.size();
+        }
+        private String extractJsonObjectFromArray(String jsonArrayString, Integer
+                                                  index) {
+                                                      // 1. Validate inputs
+                                                      if (String.isBlank(jsonArrayString) || index == null || index < 0) {
+                                                          System.debug(LoggingLevel.WARN, 'JSON input was null/blank or index was invalid.');
+                                                          return null;
+                                                      }
+                                                      try {
+                                                          // 2. Deserialize the string into a list of generic objects
+                                                          List<Object> items = (List<Object>)
+                                                              JSON.deserializeUntyped(jsonArrayString);
+                                                          System.debug('json item count: ' + items.size());
+                                                          System.debug('index: ' + index);
+                                                          // 3. Check if the index is within the bounds of the list
+                                                          if (index >= items.size()) {
+                                                              System.debug(LoggingLevel.WARN, 'Index ' + index + ' is out of bounds for the JSON array size of ' + items.size() + '.');
+                                                              return null;
+                                                          }
+                                                          // 4. Get the specific object at the index
+                                                          Object singleJsonObject = items.get(index);
+                                                          // 5. Serialize that single object back into a JSON string and return it
+                                                          
+                                                          return JSON.serialize(singleJsonObject);
+                                                      } catch (Exception e) {
+                                                          // Handle potential JSON parsing errors
+                                                          System.debug(LoggingLevel.ERROR, 'Failed to extract JSON object. Error: ' + e.getMessage());
+                                                          
+                                                          return null;
+                                                      }
+                                                  }
+    }
+    private class UpdateRecordFromJSON {
+        private SObject applyJsonToRecord(SObject record, String jsonInput) {
+            // Return early if the inputs are invalid
+            if (record == null || String.isBlank(jsonInput)) {
+                return record;
+            }
+            try {
+                // Deserialize the JSON string into a map of field names to values
+                
+                Map<String, Object> fieldUpdates = (Map<String, Object>)
+                    JSON.deserializeUntyped(jsonInput);
+                // Get a map of all fields available on the record's object type
+                Map<String, Schema.SObjectField> fieldMap =
+                    record.getSObjectType().getDescribe().fields.getMap();
+                // Iterate through each field provided in the JSON
+                for (String fieldApiName : fieldUpdates.keySet()) {
+                    // Check if the field exists on the SObject
+                    if (fieldMap.containsKey(fieldApiName)) {
+                        Schema.DescribeFieldResult fieldDescribe =
+                            fieldMap.get(fieldApiName).getDescribe();
+                        Object rawValue = fieldUpdates.get(fieldApiName);
+                        // Convert the JSON value to the correct Apex data type
+                        
+                        Object convertedValue =
+                            convertValueToType(rawValue, fieldDescribe.getType());
+                        // Apply the converted value to the record
+                        record.put(fieldApiName, convertedValue);
+                    } else {
+                        // Log a warning if the field doesn't exist on the object
+                        
+                        System.debug(LoggingLevel.WARN, 'Field ' +
+                                     fieldApiName + ' not found on ' + record.getSObjectType() + '.');
+                    }
+                }
+                return record;
+            } catch (Exception e) {
+                throw new AuraHandledException('Error updating record from JSON: ' + e.getMessage());
+                
+            }
+        }
+        private Object convertValueToType(Object rawValue, Schema.DisplayType targetType)
+        {
+            if (rawValue == null) {
+                return null;
+            }
+            try {
+                switch on targetType {
+                    when DOUBLE, CURRENCY, PERCENT {
+                        // JSON numbers deserialize as Decimal
+                        return Decimal.valueOf(String.valueOf(rawValue));
+                    }
+                    when INTEGER {
+                        // Handle potential Decimal values from JSON
+                        if (rawValue instanceof Decimal) {
+                            return ((Decimal) rawValue).intValue();
+                        }
+                        return Integer.valueOf(String.valueOf(rawValue));
+                    }
+                    when BOOLEAN {
+                        return Boolean.valueOf(String.valueOf(rawValue));
+                    }
+                    when DATE {
+                        // Expects 'YYYY-MM-DD' format
+                        return Date.valueOf(String.valueOf(rawValue));
+                    }
+                    when DATETIME {
+                        // Expects 'YYYY-MM-DD HH:MM:SS' in local timezone
+                        return
+                            Datetime.valueOfGmt(String.valueOf(rawValue));
+                    }
+                    when else {
+                        // Default to String for other types
+                        return String.valueOf(rawValue);
+                    }
+                }
+            } catch (Exception e) {
+                System.debug(LoggingLevel.ERROR, 'Failed to convert "' + rawValue
+                             + '" to ' + targetType + '. Error: ' + e.getMessage());
+                // Return null if conversion fails to prevent unhandled exceptions
+                
+                return null;
+            }
+        }
+    }
+    private class SegmentationResult {
+        private List<blvm_QuoteLineModel> lineModels;
+        private Integer nextKey;
+        private SegmentationResult(List<blvm_QuoteLineModel> lines, Integer key) {
+            this.lineModels = lines;
+            this.nextKey = key;
+        }
+    }
+    private class Segmentation {
+        // Wrapper class to return both the modified lines and the new nextKey.
+        SegmentationResult segmentLines(
+            List<blvm_QuoteLineModel> quoteModelLines,
+            Integer lineIndex,
+            Integer currentNextKey,
+            Integer numberOfSegments,
+            Map<String, SBQQ__Dimension__c> prodIdVsDimessionMap) {
+                //'String period' removed and added 'Map<String, SBQQ__Dimension__c> prodIdVsDimessionMap' map by blvm
+                // 1. Get the original line model and its underlying sObject record.
+                blvm_QuoteLineModel originalLineModel = quoteModelLines[lineIndex];
+                SBQQ__QuoteLine__c templateLineRecord = originalLineModel.record;
+                // 2. Determine the term length for each segment.
+                Integer segmentTerm = 0;
+                /**below code added by blvm to remove hard coaded value 'Year' 28/08/2025**Code start here**/
+                SBQQ__Dimension__c dimension = new SBQQ__Dimension__c();
+                if(prodIdVsDimessionMap.containsKey(templateLineRecord.SBQQ__Product__c)){
+                    dimension = prodIdVsDimessionMap.get(templateLineRecord.SBQQ__Product__c);
+                }
+                if(dimension.SBQQ__Type__c.equalsIgnoreCase('Year')){
+                    segmentTerm = 12;
+                } else if (dimension.SBQQ__Type__c.equalsIgnoreCase('Quarter')) {
+                    segmentTerm = 3;
+                }
+                /**Code end here**/
+                /* This section is commented by blvm.
+                 if (period.equalsIgnoreCase('Year')) {
+                    segmentTerm = 12;
+                } else if (period.equalsIgnoreCase('Quarter')) {
+                    segmentTerm = 3;
+                } else { 
+                    throw new AuraHandledException('Invalid period specified. Must be "Year" or "Quarter".');
+                    
+                }
+                // 3. Find the correct Product Dimension record to link to the new lines.
+                SBQQ__Dimension__c dimension;
+                try {
+                    dimension = [
+                        SELECT Id, SBQQ__Type__c FROM SBQQ__Dimension__c
+                        WHERE SBQQ__Product__c = :templateLineRecord.SBQQ__Product__c
+                        LIMIT 1
+                    ];
+                } catch (Exception e) {
+                    throw new AuraHandledException('Could not find a "' + period + '" ProductDimension for Product ID ' + templateLineRecord.SBQQ__Product__c);
+                }*/
+                
+                // 4. Prepare a new list to hold the final set of quote lines.
+                List<blvm_QuoteLineModel> finalLineModels = new List<blvm_QuoteLineModel>();
+                // 5. Generate a unique key to group the new segments.
+                String segmentKey = String.valueOf(System.now().getTime());
+                Integer keyCounter = currentNextKey;
+                // 6. Rebuild the list of line items, replacing the original line with its new segments.
+                
+                for (Integer i = 0; i < quoteModelLines.size(); i++) {
+                    if (i == lineIndex) {
+                        // Get the initial start date from the original line.
+                        Date currentSegmentStartDate = templateLineRecord.SBQQ__StartDate__c;
+                        if (currentSegmentStartDate == null) {
+                            currentSegmentStartDate = System.today();
+                        }
+                        // Create the new segment lines.
+                        for (Integer j = 1; j <= numberOfSegments; j++) {
+                            // Instantiate a new line instead of cloning it
+                            SBQQ__QuoteLine__c newSegmentRecord = new SBQQ__QuoteLine__c();
+                            // --- Manually copy over only the necessary fields ---
+                            newSegmentRecord.SBQQ__Quote__c = templateLineRecord.SBQQ__Quote__c;
+                            newSegmentRecord.SBQQ__Product__c =
+                                templateLineRecord.SBQQ__Product__c;
+                            newSegmentRecord.SBQQ__Quantity__c =
+                                templateLineRecord.SBQQ__Quantity__c;
+                            newSegmentRecord.SBQQ__PricebookEntryId__c =
+                                templateLineRecord.SBQQ__PricebookEntryId__c;
+                            // --- End of essential fields to copy ---
+                            // Set the Subscription Base to match native behavior
+                            newSegmentRecord.SBQQ__SubscriptionBase__c = 'List';
+                            // Set the writable source date fields.
+                            newSegmentRecord.SBQQ__StartDate__c = currentSegmentStartDate;
+                            newSegmentRecord.SBQQ__EndDate__c =
+                                currentSegmentStartDate.addMonths(segmentTerm).addDays(-1);
+                            // All segments must share the SAME line number as the original.
+                            newSegmentRecord.SBQQ__Number__c = templateLineRecord.SBQQ__Number__c;
+                            // Set the other fields that define this as a segment.
+                            newSegmentRecord.SBQQ__Dimension__c = (Id)dimension.get('Id');
+                            newSegmentRecord.SBQQ__SegmentKey__c = segmentKey;
+                            newSegmentRecord.SBQQ__SegmentIndex__c = j;
+                            newSegmentRecord.SBQQ__SegmentLabel__c = dimension.SBQQ__Type__c + ' ' + j;
+                            // Create the new line model, using an incrementing key for the QLE'sinternal model.
+                            
+                            blvm_QuoteLineModel newSegmentModel = new blvm_QuoteLineModel();
+                            newSegmentModel.record = newSegmentRecord;
+                            newSegmentModel.key = keyCounter;
+                            finalLineModels.add(newSegmentModel);
+                            keyCounter++;
+                            // Prepare the start date for the next segment.
+                            currentSegmentStartDate =
+                                newSegmentRecord.SBQQ__EndDate__c.addDays(1);
+                        }
+                    } else {
+                        // This line is not being segmented, add it back to the list as-is.
+                        finalLineModels.add(quoteModelLines[i]);
+                    }
+                }
+                // 7. Return the fully updated list of quote line models.
+                return new SegmentationResult(finalLineModels, keyCounter);
+            }
+    }
+    public class AddProductRequest {
+        @InvocableVariable(label='Quote ID' description='The ID of the Quote to add theproduct to.' required=true)
+        public Id quoteId;
+        @InvocableVariable(label='Pricebook ID' description='The ID of the Pricebook for thequote and product.' required=true)        
+        public Id pricebookId;
+        @InvocableVariable(label='Currency ISO Code' description='The 3-letter currency ISOcode (e.g., USD, EUR).' required=true)
+        public String currencyCode;
+        @InvocableVariable(label='Quote Line Assignments' description='The JSON collection containing quote line field assignments' required=true)
+        public String quoteLineAssignments;
+    }
+    
+     public class AddProductResponse {
+        @InvocableVariable(label='Validation message')
+        public List<String> results;
+     }
+    
+  /*  @future // Marks the method to run asynchronously and allows callouts
+    public static void performExternalCallout(String quoteId) {
+        // Your asynchronous code here, e.g., calling an external service
+          String quoteJSON = SBQQ.ServiceRouter.read('SBQQ.QuoteAPI.QuoteReader',quoteId);
+         blvm_QuoteModel quoteRecord = (blvm_QuoteModel)JSON.deserialize(quoteJSON,
+                                                                             blvm_QuoteModel.class);
+        
+         blvm_QuoteCalculator calculator = new blvm_QuoteCalculator();
+            calculator.calculate(quoteRecord, 'blvm_SaveAfterCalculateCallback');
+        System.debug('Performing callout with parameter: ' +  quoteId);
+    }*/
+   
+}
