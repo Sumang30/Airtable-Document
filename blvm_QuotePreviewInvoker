@@ -1,0 +1,134 @@
+public class blvm_QuotePreviewInvoker {
+    /*public class Request {
+        @InvocableVariable(required=true label='Quote Id')
+        public Id quoteId;
+    }
+
+    public class Response {
+        @InvocableVariable(label='Rule Name')
+        public String ruleName;
+
+        @InvocableVariable(label='Approver Name')
+        public String approverName;
+
+        @InvocableVariable(label='Status')
+        public String status;
+    }
+
+    @InvocableMethod(label='Get Approval Preview' description='Preview required approvals for a Quote')
+    public static List<Response> getPreview(List<Request> requests) {
+        List<Response> results = new List<Response>();
+
+        for (Request req : requests) {
+            if (req.quoteId == null) continue;
+
+            // Call Advanced Approvals API
+            List<sbaa__Approval__c> approvals = 
+                SBAA.ApprovalAPI.preview(req.quoteId, sbaa__Approval__c.Quote__c);
+
+            for (sbaa__Approval__c app : approvals) {
+                Response r = new Response();
+                r.ruleName = app.sbaa__Rule__c;
+                r.approverName = app.Name;
+                r.status = app.sbaa__Status__c;
+                results.add(r);
+            }
+        }
+        return results;
+    }*/
+    
+   /* public class QuotePreviewRequest {
+        @InvocableVariable(required=true)
+        public Id quoteId;
+    }
+
+    public class Response{
+        @InvocableVariable 
+        public previewResponse response;
+    }
+
+    public class previewResponse {
+        @InvocableVariable
+        public list<QuotePreviewResponse> previewResponses;
+    }
+    
+    public class QuotePreviewResponse{
+        @InvocableVariable
+        public Boolean success;
+
+        @InvocableVariable
+        public String message;
+
+        @InvocableVariable
+        public String previewUrl; // Return the URL to Preview Approvals page
+
+        public QuotePreviewResponse(Boolean success, String message, String previewUrl){
+            this.success = success;
+            this.message = message;
+            this.previewUrl = previewUrl;
+        }
+    }
+
+    @InvocableMethod(label='Preview Quote Approval' description='Generates URL for SBAA Preview Approvals page')
+    public static List<Response> previewQuote(List<QuotePreviewRequest> requests) {
+        list<Response> res = new list<Response>();
+        Response newRes = new Response();
+        newRes.response = new previewResponse();
+        newRes.response.previewResponses = new List<QuotePreviewResponse>();
+
+        String baseUrl = System.URL.getOrgDomainUrl().toExternalForm();
+        String previewUrl = baseUrl + '/apex/sbaa__PreviewApprovals?Id=' + requests[0].quoteId;
+
+        QuotePreviewResponse qPreviewRes = new QuotePreviewResponse(true, 'Preview URL generated successfully', previewUrl);
+        newRes.response.previewResponses.add(qPreviewRes);
+        res.add(newRes);
+        return res; 
+
+    } */
+
+    public class QuotePreviewRequest {
+        @InvocableVariable(required=true)
+        public Id quoteId;
+    }
+
+    public class QuotePreviewResponse {
+        @InvocableVariable
+        public Boolean success;
+
+        @InvocableVariable
+        public String message;
+
+        @InvocableVariable
+        public String previewUrl; // Return the URL to Preview Approvals page
+    }
+
+    @InvocableMethod(label='Preview Quote Approval' description='Generates URL for SBAA Preview Approvals page')
+    public static List<QuotePreviewResponse> previewQuote(List<QuotePreviewRequest> requests) {
+        List<QuotePreviewResponse> responses = new List<QuotePreviewResponse>();
+
+        for (QuotePreviewRequest req : requests) {
+            QuotePreviewResponse res = new QuotePreviewResponse();
+            try {
+                if (req.quoteId == null) {
+                    res.success = false;
+                    res.message = 'Quote Id is required';
+                } else {
+                    
+                    String baseUrl = System.URL.getOrgDomainUrl().toExternalForm();
+                    String previewUrl = baseUrl + '/apex/sbaa__PreviewApprovals?Id=' + req.quoteId;
+
+                    res.success = true;
+                    res.message = 'Preview URL generated successfully';
+                    res.previewUrl = previewUrl;
+                }
+            } catch (Exception ex) {
+                res.success = false;
+                res.message = 'Error generating preview URL: ' + ex.getMessage();
+            }
+            responses.add(res);
+        }
+
+        return responses;
+    }
+
+}
