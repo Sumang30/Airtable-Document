@@ -1,0 +1,18 @@
+public class blvm_QuoteCalculator {
+    
+    public void calculate(blvm_QuoteModel quote, String callbackClass) {
+    QuoteCalculatorContext ctx = new QuoteCalculatorContext(quote, callbackClass);
+    SBQQ.ServiceRouter.load('SBQQ.QuoteAPI.QuoteCalculator', null, JSON.serialize(ctx));    
+  }    
+
+  private class QuoteCalculatorContext {        
+    private blvm_QuoteModel quote; 
+    private String callbackClass;
+
+    private QuoteCalculatorContext(blvm_QuoteModel quote, String callbackClass) {
+      this.quote = quote;            
+      this.callbackClass = callbackClass;        
+    }
+  } 
+
+}
