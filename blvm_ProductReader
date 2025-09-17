@@ -1,0 +1,24 @@
+public class blvm_ProductReader {
+    
+    public blvm_ProductModel read(Id productId, Id pricebookId, String currencyCode) {
+        ProductReaderContext ctx = new ProductReaderContext(pricebookId, currencyCode);
+        String productJSON = SBQQ.ServiceRouter.load('SBQQ.ProductAPI.ProductLoader', productId, JSON.serialize(ctx));
+        System.debug('Product JSON '+ productId);
+         System.debug('Product JSON '+ pricebookId);
+         System.debug('Product JSON '+ currencyCode);
+         System.debug('Product JSON '+ productJSON);
+         System.debug('Product JSON '+ productJSON);
+        return (blvm_ProductModel) JSON.deserialize(productJSON, blvm_ProductModel.class);
+    }
+    
+    private class ProductReaderContext {
+        private Id pricebookId;
+        private String currencyCode;
+        
+        private ProductReaderContext(Id pricebookId, String currencyCode) {
+            this.pricebookId = pricebookId;
+            this.currencyCode = currencyCode;
+        }
+    } 
+
+}
