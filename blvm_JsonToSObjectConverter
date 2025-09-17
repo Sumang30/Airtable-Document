@@ -1,0 +1,135 @@
+public class blvm_JsonToSObjectConverter {
+     @InvocableMethod(label='BLVM Convert JSON to SObjects by API Name'
+                     description='Converts JSON (single or multiple records) into SObjects using a provided SObject API Name.')
+    public static List<List<SObject>> convertJsonToSObjects(List<InputWrapper> inputWrappers) {
+        List<List<SObject>> allSObjectLists = new List<List<SObject>>();
+
+        if (inputWrappers == null || inputWrappers.isEmpty()) {
+            System.debug('No input wrappers provided. Returning empty list.');
+            return allSObjectLists;
+        }
+
+        for (InputWrapper wrapper : inputWrappers) {
+            String sObjectApiName = wrapper.sObjectApiName;
+            String jsonPayload = wrapper.jsonPayload;
+            List<SObject> currentSObjectList = new List<SObject>();
+
+            if (String.isBlank(sObjectApiName)) {
+                System.debug(LoggingLevel.WARN, 'SObject API Name is blank for JSON payload: ' + jsonPayload);
+                allSObjectLists.add(currentSObjectList);
+                continue;
+            }
+            if (String.isBlank(jsonPayload)) {
+                System.debug(LoggingLevel.WARN, 'JSON payload is blank for SObject API Name: ' + sObjectApiName);
+                allSObjectLists.add(currentSObjectList);
+                continue;
+            }
+
+            try {
+                // Get SObject describe information to create a new instance
+                Schema.SObjectType sObjToken = Schema.getGlobalDescribe().get(sObjectApiName);
+                if (sObjToken == null) {
+                    throw new InvalidParameterException('Invalid SObject API Name provided: ' + sObjectApiName);
+                }
+
+                // Attempt to deserialize the JSON payload directly.
+                // It could be a single record Map or a List of record Maps.
+                Object deserializedData = JSON.deserializeUntyped(jsonPayload);
+
+                if (deserializedData instanceof Map<String, Object>) {
+                    // Single record JSON: {"Field1": "Value1", ...}
+                    Map<String, Object> recordMap = (Map<String, Object>) deserializedData;
+                    currentSObjectList.add(createSObjectFromMap(sObjToken, recordMap));
+                } else if (deserializedData instanceof List<Object>) {
+                    // Multiple records JSON: [{"Field1": "Value1", ...}, ...]
+                    List<Object> recordsList = (List<Object>) deserializedData;
+                    for (Object recordObj : recordsList) {
+                        if (recordObj instanceof Map<String, Object>) {
+                            Map<String, Object> recordMap = (Map<String, Object>) recordObj;
+                            currentSObjectList.add(createSObjectFromMap(sObjToken, recordMap));
+                        } else {
+                            System.debug(LoggingLevel.WARN, 'Unexpected record format in list for ' + sObjectApiName + ': ' + recordObj);
+                        }
+                    }
+                } else {
+                    System.debug(LoggingLevel.WARN, 'Unsupported JSON structure for SObject API Name: ' + sObjectApiName + ' - Payload: ' + jsonPayload);
+                }
+
+            } catch (Exception e) {
+                System.debug(LoggingLevel.ERROR, 'Error parsing JSON for SObject ' + sObjectApiName + ': ' + jsonPayload + ' - ' + e.getMessage() + ' at Line ' + e.getLineNumber());
+                // Invocable methods should handle exceptions gracefully if the Flow is to continue.
+                // For critical errors, you might still re-throw or populate an error output.
+            }
+            allSObjectLists.add(currentSObjectList);
+            system.debug('print allSObjectLists' + allSObjectLists);
+        }
+        return allSObjectLists;
+    }
+
+    /**
+     * Helper method to create an SObject instance from a Map of field names to values.
+     * @param sObjToken The SObject token (e.g., Schema.Account.sObjectType)
+     * @param recordMap A Map where keys are field API names and values are field values.
+     * @return A new SObject instance populated with the provided data.
+     */
+    private static SObject createSObjectFromMap(Schema.SObjectType sObjToken, Map<String, Object> recordMap) {
+        SObject newSObject = sObjToken.newSObject();
+        Map<String, Schema.SObjectField> fieldMap = sObjToken.getDescribe().fields.getMap();
+
+        for (String fieldName : recordMap.keySet()) {
+            Object fieldValue = recordMap.get(fieldName);
+
+            // Important: Salesforce field API names are case-insensitive, but JSON keys can be case-sensitive.
+            // We should try to find the correct field API name from the describe map.
+            String normalizedFieldName = null;
+            for(String key : fieldMap.keySet()) {
+                if(key.equalsIgnoreCase(fieldName)) {
+                    normalizedFieldName = key;
+                    break;
+                }
+            }
+
+            if (normalizedFieldName != null) {
+                Schema.DisplayType fieldType = fieldMap.get(normalizedFieldName).getDescribe().getType();
+
+                // Basic type casting for common field types.
+                // More complex types (like Date, DateTime) might need specific parsing if they come as strings.
+                if (fieldValue != null) {
+                    if (fieldType == Schema.DisplayType.Date) {
+                        // Assuming Date is sent as 'YYYY-MM-DD' string
+                        newSObject.put(normalizedFieldName, Date.valueOf((String)fieldValue));
+                    } else if (fieldType == Schema.DisplayType.DateTime) {
+                        // Assuming DateTime is sent as ISO 8601 string, e.g., 'YYYY-MM-DDThh:mm:ssZ'
+                        newSObject.put(normalizedFieldName, DateTime.valueOfGmt((String)fieldValue));
+                    } else if (fieldType == Schema.DisplayType.Integer || fieldType == Schema.DisplayType.Double || fieldType == Schema.DisplayType.Currency || fieldType == Schema.DisplayType.Percent) {
+                        // For numbers, ensure it's converted to Decimal to avoid precision issues
+                        newSObject.put(normalizedFieldName, Decimal.valueOf(String.valueOf(fieldValue)));
+                    } else if (fieldType == Schema.DisplayType.Boolean) {
+                        newSObject.put(normalizedFieldName, Boolean.valueOf(String.valueOf(fieldValue)));
+                    } else {
+                        // For String, ID, Reference, Email, Phone, URL, Textarea, Picklist, etc.
+                        newSObject.put(normalizedFieldName, fieldValue);
+                    }
+                } else {
+                    newSObject.put(normalizedFieldName, null); // Set field to null if value is null
+                }
+            } else {
+                System.debug(LoggingLevel.WARN, 'Field "' + fieldName + '" not found or accessible for SObject type: ' + sObjToken.getDescribe().getName());
+            }
+        }
+        system.debug('print newSObject' + newSObject);
+        return newSObject;
+    }
+
+    public class InputWrapper {
+        @InvocableVariable(label='SObject API Name' description='The API name of the SObject (e.g., Opportunity, Account, My_Custom_Object__c)')
+        public String sObjectApiName;
+
+        @InvocableVariable(label='JSON Payload' description='The JSON string representing the SObject record(s). Can be a single object or an array of objects.')
+        public String jsonPayload;
+    }
+
+    // Custom exception for better error handling in Flow
+    public class InvalidParameterException extends Exception {}
+
+}
