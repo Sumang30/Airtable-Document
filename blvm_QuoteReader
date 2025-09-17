@@ -1,0 +1,59 @@
+public class blvm_QuoteReader {
+    
+    public class ReadQuoteInput {
+        @InvocableVariable(label='Quote ID' description='The ID of the Quote to read.' required=true)
+        public Id quoteId;
+    }
+
+    public class ReadQuoteOutput {
+        @InvocableVariable(label='Quote Model JSON' description='The JSON string representation of the QuoteModel.')
+        public String quoteModelJson;
+        @InvocableVariable(label='Success' description='Indicates if the quote was successfully read.')
+        public Boolean isSuccess;
+        @InvocableVariable(label='Error Message' description='Any error message if the read failed.')
+        public String errorMessage;
+    }
+
+    @InvocableMethod(label='Read CPQ Quote' description='Reads a Salesforce CPQ Quote and returns its data model.')
+    public static List<ReadQuoteOutput> readQuoteModel(List<ReadQuoteInput> inputs) {
+        List<ReadQuoteOutput> results = new List<ReadQuoteOutput>();
+
+        for (ReadQuoteInput input : inputs) {
+            ReadQuoteOutput output = new ReadQuoteOutput();
+            output.isSuccess = false; // Default to false
+
+            System.debug('Attempting to read Quote ID: ' + input.quoteId);
+            try {
+                if (input.quoteId == null || !String.valueOf(input.quoteId).startsWith('a02')) {
+                    output.errorMessage = 'Invalid or null Quote ID provided: ' + input.quoteId;
+                    System.debug(output.errorMessage);
+                    results.add(output);
+                    continue;
+                }
+
+                String quoteJSON = SBQQ.ServiceRouter.read('SBQQ.QuoteAPI.QuoteReader', input.quoteId);
+                System.debug('Raw Quote JSON from CPQ: ' + quoteJSON);
+
+                output.quoteModelJson = quoteJSON;
+                output.isSuccess = true;
+                System.debug('Successfully read Quote ID: ' + input.quoteId);
+
+            } catch (Exception e) {
+                output.errorMessage = 'Error reading Quote ID ' + input.quoteId + ': ' + e.getMessage();
+                System.debug(output.errorMessage);
+            }
+            results.add(output);
+        }
+        return results;
+    }
+
+    public blvm_QuoteModel read(String quoteId) {
+        if (quoteId == null || !String.valueOf(quoteId).startsWith('a53')) {
+            throw new AuraHandledException('Invalid Quote ID provided: ' + quoteId);
+        }
+        String quoteJSON = SBQQ.ServiceRouter.read('SBQQ.QuoteAPI.QuoteReader', quoteId);
+        // Deserialize the JSON string into the QuoteModel object
+        return (blvm_QuoteModel) JSON.deserialize(quoteJSON, blvm_QuoteModel.class);
+    }
+
+}
