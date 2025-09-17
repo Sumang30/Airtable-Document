@@ -1,0 +1,37 @@
+public class blvm_QuoteCalculatorInvoker {
+  /*  
+    public class Request {
+        @InvocableVariable(required=true)
+        public Id quoteId;   // Quote record Id
+    }
+
+    @InvocableMethod(label='Calculate Quote' description='Run CPQ Quote Calculator API')
+    public static void calculateQuote(List<Request> requests) {
+        for (Request req : requests) {
+            // Step 1: Load the quote into JSON
+            String quoteJSON = (String) SBQQ.ServiceRouter.load(
+                'SBQQ.QuoteAPI.QuoteReader',
+                req.quoteId,
+                null
+            );
+
+            // Step 2: Run calculator with callback
+            SBQQ.ServiceRouter.calculate(
+                'SBQQ.QuoteAPI.QuoteCalculator',
+                quoteJSON,
+                'blvm_QuoteCalculatorInvoker.MyCallback'
+            );
+        }
+    }
+
+    // --- Callback class to save results after calculation ---
+    global class MyCallback implements SBQQ.CalculateCallback {
+        global void callback(String quoteJSON) {
+            // Step 3: Save the calculated quote back
+            SBQQ.ServiceRouter.save(
+                'SBQQ.QuoteAPI.QuoteSaver',
+                quoteJSON
+            );
+        }
+    }*/
+}
