@@ -1,0 +1,18 @@
+public class blvm_QuoteCalculateAndSave {
+    
+    @InvocableMethod(label='BLVM Calculate and Save Quote' description='Recalculates a quote based on its ID.')
+    public static void calculateQuote(List<String> quoteIds) {
+        if (quoteIds == null || quoteIds.isEmpty()) {
+            return;
+        }
+
+        String quoteId = quoteIds[0];
+
+        blvm_QuoteReader reader = new blvm_QuoteReader();
+        blvm_QuoteModel quote = reader.read(quoteId);
+
+        blvm_QuoteCalculator calculator = new blvm_QuoteCalculator();
+        calculator.calculate(quote, 'blvm_SaveAfterCalculateCallback');
+    }
+
+}
