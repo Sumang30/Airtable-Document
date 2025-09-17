@@ -1,0 +1,97 @@
+public class blvm_QuoteUpdateAgentController {
+    
+    public class InputRequest{
+        @invocableVariable(label='Quote Id' description='Quote Id' required=true)
+        public String quoteId;
+        
+        @invocableVariable(label='updateRequest'description='updateRequest')
+        public String request;
+        
+    }
+    
+    public class OutputWrapper{
+        @InvocableVariable
+        public Boolean success;
+
+        @InvocableVariable
+        public String message;
+    }
+
+    @invocableMethod(label='Validation Rule' description='Update Existing quote.')
+    public static list<OutputWrapper> updateQuote(list<InputRequest> updateRequest){
+        system.debug(LOGGINGLEVEL.ERROR,'updateRequest==>'+updateRequest);
+        String quoteId;
+        Map<String, Object> jsonReqMap = new Map<String, Object>();
+        Map<String, Object> quoteMap = new Map<String, Object>();
+        if(updateRequest != null && updateRequest.size() > 0){
+            for(InputRequest wrap :updateRequest){
+                quoteId = wrap.quoteId;
+                if(wrap.request != null){
+                        String mappedJson = wrap.request
+                        .replace('"endDate"', '"SBQQ__EndDate__c"')
+                        .replace('"startDate"', '"SBQQ__StartDate__c"')
+                        .replace('"discount"', '"SBQQ__CustomerDiscount__c"');
+                        system.debug(LOGGINGLEVEL.ERROR,'mappedJson==>'+mappedJson);
+                        jsonReqMap = (Map<String, Object>) JSON.deserializeUntyped(mappedJson);
+                        system.debug(LOGGINGLEVEL.ERROR,'jsonReqMap==>'+jsonReqMap);
+                    }
+            }
+        }
+        List<Object> quoteLinesList = new List<Object>();
+        if(jsonReqMap.containsKey('Quote')){
+            quoteMap = (Map<String, Object>) jsonReqMap.get('Quote');
+            system.debug(LOGGINGLEVEL.ERROR,'quoteMapIncludingLines==>'+quoteMap);
+            if (quoteMap.containsKey('Quote Lines')) {
+                quoteLinesList = (List<Object>) quoteMap.remove('Quote Lines');
+                system.debug(LOGGINGLEVEL.ERROR,'quoteLinesList==>'+quoteLinesList);
+            }
+            system.debug(LOGGINGLEVEL.ERROR,'quoteMap==>'+quoteMap);
+        }else{
+            quoteMap = jsonReqMap; 
+        }
+        List<String> quoteFieldList = new List<String>();
+        for(String quoteFields :quoteMap.keySet()){
+            quoteFieldList.add(quoteFields);
+        }
+        system.debug(LOGGINGLEVEL.ERROR,'quoteFieldList==>'+quoteFieldList);
+        String soqlFields = String.join(quoteFieldList, ',');
+        system.debug(LOGGINGLEVEL.ERROR,'soqlFields==>'+soqlFields);
+        String query = 'SELECT id, SBQQ__Status__c, ApprovalStatus__c, ' + soqlFields + ' FROM SBQQ__Quote__c WHERE id = :quoteId';
+        system.debug(LOGGINGLEVEL.ERROR,'query==>'+query);
+        list<SBQQ__Quote__c> updateQuoteList = Database.Query(query);
+        
+        list<SBQQ__Quote__c> qList = new list<SBQQ__Quote__c>();
+       
+        for(SBQQ__Quote__c  quote :updateQuoteList){
+            for(String str :quoteFieldList){
+               
+                if (quote.getSObjectType().getDescribe().fields.getMap().get(str).getDescribe().getType() == Schema.DisplayType.Date) {
+                    // Convert String to Date
+                    quote.put(str, Date.valueOf((String)quoteMap.get(str)));
+                } else if (quote.getSObjectType().getDescribe().fields.getMap().get(str).getDescribe().getType() == Schema.DisplayType.DateTime) {
+                    // Convert String to DateTime
+                    quote.put(str, Datetime.valueOf((String)quoteMap.get(str)));
+                } else {
+                    // For other field types just assign directly
+                    quote.put(str, quoteMap.get(str));
+                }
+            }
+            
+        }
+        system.debug(LOGGINGLEVEL.ERROR,'updateQuoteList==>'+updateQuoteList);
+        list<OutputWrapper> outputList = new list<OutputWrapper>();
+      
+        try{
+            update updateQuoteList;
+            OutputWrapper output = new OutputWrapper();
+			output.success = true;
+			output.message = 'Quote Updated Successfully';
+            return new list<OutputWrapper>{output};
+        }catch(Exception e){
+            OutputWrapper output = new OutputWrapper();
+			output.success = false;
+			output.message = e.getDmlMessage(0);
+            return new list<OutputWrapper>{output};
+        }
+    }
+}
