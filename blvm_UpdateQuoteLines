@@ -1,0 +1,159 @@
+public class blvm_UpdateQuoteLines {
+    
+    @invocableMethod(label='Update Quote Lines' description='Update the quote lines to the new values')
+    public static List<outputWrapper> updateQLines(List<quoteLineWrapper> wrapperList){
+        system.debug(LOGGINGLEVEL.ERROR,'wrapperList==>'+wrapperList);
+        String quoteId;
+        Map<String, Object> jsonReqMap = new Map<String, Object>();
+        try{
+            if(wrapperList != null && wrapperList.size() > 0){
+                for(quoteLineWrapper qWrapp :wrapperList){
+                    quoteId = qWrapp.quoteId;
+                    if(qWrapp.updateRequest != null){
+                        String mappedJson = qWrapp.updateRequest
+                        .replace('"endDate"', '"SBQQ__EndDate__c"')
+                        .replace('"startDate"', '"SBQQ__StartDate__c"')
+                        .replace('"uplift"', '"SBQQ__Uplift__c"')
+                        .replace('"discount"', '"SBQQ__Discount__c"')
+                        .replace('"quantity"', '"SBQQ__Quantity__c"')
+                        .replace('"product"', '"SBQQ__ProductName__c"')
+                        .replace('"productName"', '"SBQQ__ProductName__c"')
+                        .replace('"segment"', '"SBQQ__SegmentIndex__c"');
+                        system.debug(LOGGINGLEVEL.ERROR,'mappedJson==>'+mappedJson);
+                        jsonReqMap = (Map<String, Object>) JSON.deserializeUntyped(mappedJson);
+                        system.debug(LOGGINGLEVEL.ERROR,'jsonReqMap==>'+jsonReqMap);
+                    }
+                }
+            }
+
+        list<SBQQ__QuoteLine__c> quoteLineList = [SELECT id, SBQQ__Discount__c, SBQQ__Quote__c, SBQQ__ProductName__c, 
+                                                    SBQQ__Quantity__c, SBQQ__Uplift__c, SBQQ__StartDate__c, SBQQ__EndDate__c,
+                                                    SBQQ__SegmentIndex__c, SBQQ__SegmentLabel__c, SBQQ__Product__c
+                                                  FROM SBQQ__QuoteLine__c
+                                                  WHERE SBQQ__Quote__c =: quoteId];
+        system.debug(LOGGINGLEVEL.ERROR,'quoteLineList==>'+quoteLineList);
+        map<String, list<SBQQ__QuoteLine__c>> prodNameVsQuoteLineListMap = new map<String, list<SBQQ__QuoteLine__c>>();
+        if(quoteLineList != null && quoteLineList.size() > 0){
+            for(SBQQ__QuoteLine__c qLine :quoteLineList){
+                if(prodNameVsQuoteLineListMap.get(qLine.SBQQ__ProductName__c) == null){
+                    prodNameVsQuoteLineListMap.put(qLine.SBQQ__ProductName__c, new list<SBQQ__QuoteLine__c>{qLine});
+                }else{
+                    prodNameVsQuoteLineListMap.get(qLine.SBQQ__ProductName__c).add(qLine);
+                }
+            }
+        }
+       
+        List<Object> quoteLines = new List<Object>();
+        if(jsonReqMap.containsKey('Quote Lines')){
+            quoteLines = (List<Object>) jsonReqMap.get('Quote Lines');
+        }else{
+            quoteLines.add(jsonReqMap);
+        }
+        system.debug(LOGGINGLEVEL.ERROR,'quoteLines==>'+quoteLines);
+        List<SBQQ__QuoteLine__c> updateQuoteLines = new List<SBQQ__QuoteLine__c>();
+        if(quoteLines != null && quoteLines.size() > 0){
+            
+                updateQuoteLines = helperMethod(quoteLines, prodNameVsQuoteLineListMap);
+            }
+        try{
+            update updateQuoteLines;
+            outputWrapper outPut = new outputWrapper();
+            List<outputWrapper> outPutList = new List<outputWrapper>();
+            outPut.success = true;
+            outPut.message = 'Quote Lines updated';
+            outPutList.add(outPut);
+            return outPutList;
+        }catch(exception e){
+            outputWrapper outPut = new outputWrapper();
+            List<outputWrapper> outPutList = new List<outputWrapper>();
+            outPut.success = false;
+            outPut.message = 'Quote Lines are not updated successfully due to the following error: ' + e.getMessage();
+            outPutList.add(outPut);
+            return outPutList;
+        }
+
+    }catch(exception ex){
+        outputWrapper outPut = new outputWrapper();
+            List<outputWrapper> outPutList = new List<outputWrapper>();
+            outPut.success = false;
+            outPut.message = 'Quote Lines are not updated successfully due to the following error: ' + ex.getMessage() + 'Please provide the details again';
+            outPutList.add(outPut);
+            return outPutList;
+    }
+
+    }
+
+    public class JsonRequest {
+        public String product;
+        public Integer segment;
+        public Integer quantity;
+        public Integer uplift;
+    }
+
+    public class quoteLineWrapper {
+        @invocableVariable(label='Quote Id' description='Quote Id' required=true)
+        public String quoteId;
+
+        @invocableVariable(label='updateRequest'description='updateRequest')
+        public String updateRequest;
+
+        public quoteLineWrapper(){
+
+        }
+
+        public quoteLineWrapper(String quoteId, String updateRequest){
+            this.quoteId = quoteId;
+            this.updateRequest = updateRequest;
+        }
+    }
+
+    public class outputWrapper{
+        @InvocableVariable
+        public Boolean success;
+
+        @InvocableVariable
+        public String message;
+    }
+
+    public static List<SBQQ__QuoteLine__c> helperMethod(List<Object> quoteLines, map<String, list<SBQQ__QuoteLine__c>> prodNameVsQuoteLineListMap){
+         List<SBQQ__QuoteLine__c> updateQuoteLines = new List<SBQQ__QuoteLine__c>();
+                    
+                for (Object lineObj : quoteLines){
+                    Map<String, Object> jsonMap = (Map<String, Object>) lineObj;
+                    system.debug(LOGGINGLEVEL.ERROR,'jsonMap==>'+jsonMap);
+                    String productId = (String) jsonMap.get('Product');
+                    system.debug(LOGGINGLEVEL.ERROR,'productId==>'+productId);
+                    List<SBQQ__QuoteLine__c> quoteLineListToUpdate = prodNameVsQuoteLineListMap.get(productId);
+                    System.debug(LOGGINGLEVEL.ERROR,'quoteLineListToUpdate==>' + quoteLineListToUpdate);
+                    for(SBQQ__QuoteLine__c qLine :quoteLineListToUpdate){
+                        if (jsonMap.containsKey('Segments')) {
+                            List<Object> segments = (List<Object>) jsonMap.get('Segments');
+                            for (Object segObj : segments) {
+                                Map<String, Object> segMap = (Map<String, Object>) segObj;
+                                System.debug(LOGGINGLEVEL.ERROR,'   Segment Index: ' + segMap.get('SBQQ__SegmentIndex__c'));
+                                System.debug(LOGGINGLEVEL.ERROR,'   Quantity: ' + segMap.get('SBQQ__Quantity__c'));
+                                if(qLine.SBQQ__SegmentIndex__c == segMap.get('SBQQ__SegmentIndex__c')){
+                                    qLine.SBQQ__Quantity__c = (Decimal) segMap.get('SBQQ__Quantity__c') != null ? (Decimal) segMap.get('SBQQ__Quantity__c') : qLine.SBQQ__Quantity__c;
+                                    qLine.SBQQ__Discount__c = (Decimal) segMap.get('SBQQ__Discount__c') != null ? (Decimal) segMap.get('SBQQ__Discount__c') : qLine.SBQQ__Discount__c;
+                                    qLine.SBQQ__Uplift__c = (Decimal) segMap.get('SBQQ__Uplift__c') != null ? (Decimal) segMap.get('SBQQ__Uplift__c') : qLine.SBQQ__Uplift__c;
+                                    qLine.SBQQ__StartDate__c = (Date) segMap.get('SBQQ__StartDate__c') != null ? (Date) segMap.get('SBQQ__StartDate__c') : qLine.SBQQ__StartDate__c;
+                                    qLine.SBQQ__EndDate__c = (Date) segMap.get('SBQQ__EndDate__c') != null ? (Date) segMap.get('SBQQ__EndDate__c') : qLine.SBQQ__EndDate__c;
+                                    updateQuoteLines.add(qLine);
+                                }
+                            }
+                        } else {
+                            // No segments, direct quantity
+                            System.debug(LOGGINGLEVEL.ERROR,'   Quantity: ' + jsonMap.get('SBQQ__Quantity__c'));
+                            qLine.SBQQ__Quantity__c = (Decimal) jsonMap.get('SBQQ__Quantity__c') != null ? (Decimal) jsonMap.get('SBQQ__Quantity__c') : qLine.SBQQ__Quantity__c;
+                            qLine.SBQQ__Discount__c = (Decimal) jsonMap.get('SBQQ__Discount__c') != null ? (Decimal) jsonMap.get('SBQQ__Discount__c') : qLine.SBQQ__Discount__c;
+                            qLine.SBQQ__Uplift__c = (Decimal) jsonMap.get('SBQQ__Uplift__c') != null ? (Decimal) jsonMap.get('SBQQ__Uplift__c') : qLine.SBQQ__Uplift__c;
+                            qLine.SBQQ__StartDate__c = (Date) jsonMap.get('SBQQ__StartDate__c') != null ? (Date) jsonMap.get('SBQQ__StartDate__c') : qLine.SBQQ__StartDate__c;
+                            qLine.SBQQ__EndDate__c = (Date) jsonMap.get('SBQQ__EndDate__c') != null ? (Date) jsonMap.get('SBQQ__EndDate__c') : qLine.SBQQ__EndDate__c;
+                            updateQuoteLines.add(qLine);
+                        }
+                    }
+                }
+                System.debug(LOGGINGLEVEL.ERROR,'updateQuoteLines==> ' + updateQuoteLines);
+                return updateQuoteLines;
+    }
+}
