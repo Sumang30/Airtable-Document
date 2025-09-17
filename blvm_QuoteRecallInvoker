@@ -1,0 +1,43 @@
+public class blvm_QuoteRecallInvoker {
+      public class RecallRequest {
+        @InvocableVariable(required=true)
+        public Id quoteId;
+    }
+
+    public class RecallResponse {
+        @InvocableVariable
+        public Boolean success;
+
+        @InvocableVariable
+        public String message;
+    }
+
+    @InvocableMethod(label='Recall Quote Approval' description='Recalls an SBAA approval for the given quote')
+    public static List<RecallResponse> recallQuote(List<RecallRequest> requests) {
+        List<RecallResponse> responses = new List<RecallResponse>();
+
+        for (RecallRequest req : requests) {
+            RecallResponse res = new RecallResponse();
+
+            try {
+                if (req.quoteId == null) {
+                    res.success = false;
+                    res.message = 'Quote Id is required.';
+                } else {
+                    // Core logic from onRecall()
+                    SBAA.ApprovalAPI.recall(req.quoteId, SBAA__Approval__c.ATQ_Quote__c);
+                    res.success = true;
+                    res.message = 'Quote approval recalled successfully.';
+                }
+            } catch (Exception ex) {
+                res.success = false;
+                res.message = 'Error recalling approval: ' + ex.getMessage();
+            }
+
+            responses.add(res);
+        }
+
+        return responses;
+    }
+
+}
