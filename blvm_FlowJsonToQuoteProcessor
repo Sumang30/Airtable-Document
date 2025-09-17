@@ -1,0 +1,75 @@
+public class blvm_FlowJsonToQuoteProcessor {
+        /*public class MasterRequest {
+        @InvocableVariable(required=true)
+        public String jsonPayload;
+        @InvocableVariable(required=true)
+        public String keyForArray;
+        @InvocableVariable(required=true)
+        public String keysToExtract; // comma-delimited 
+        @InvocableVariable(required=true)
+        public Id quoteId;
+        @InvocableVariable(required=true)
+        public Id pricebookId;
+        @InvocableVariable(required=true)
+        public String currencyCode;
+    }
+
+    @InvocableMethod(label='Process JSON and Add Products to Quote')
+    public static List<String> processJson(List<MasterRequest> requests) {
+        System.debug('Method call processJson');
+        List<String> results = new List<String>();
+
+        for (MasterRequest masterReq : requests) {
+            // Step 1 - Parse JSON into segment JSON strings
+            CPQA_ConvertJsonToTextCollection.Request parseReq = new CPQA_ConvertJsonToTextCollection.Request();
+            parseReq.jsonPayload = masterReq.jsonPayload;
+            parseReq.keyForArray = masterReq.keyForArray;
+            parseReq.keysToExtract = masterReq.keysToExtract;
+            parseReq.quoteId = masterReq.quoteId;
+            parseReq.pricebookId = masterReq.pricebookId;
+            parseReq.currencyCode = masterReq.currencyCode;
+
+            List<String> segmentItemsList =
+                CPQA_ConvertJsonToTextCollection.parseJsonArrayFromKey(
+                    new List<CPQA_ConvertJsonToTextCollection.Request>{ parseReq }
+                );
+
+            if (segmentItemsList.isEmpty()) {
+                System.debug('No segment items found for key: ' + masterReq.keyForArray);
+                continue;
+            }
+
+            // Step 2 - Extract values and insert products
+            for (String segmentJson : segmentItemsList) {
+                CPQA_JsonValueExtractor.JsonRequest extractReq = new CPQA_JsonValueExtractor.JsonRequest();
+                extractReq.jsonContent = segmentJson;
+                extractReq.keysToExtract = masterReq.keysToExtract;
+
+                List<CPQA_JsonValueExtractor.JsonResult> extractedList =
+                    CPQA_JsonValueExtractor.extractJsonValues(
+                        new List<CPQA_JsonValueExtractor.JsonRequest>{ extractReq }
+                    );
+
+                if (!extractedList.isEmpty()) {
+                    CPQA_JsonValueExtractor.JsonResult extracted = extractedList[0];
+
+                    CPQA_AddProductToQuote.AddProductRequest addReq =
+                        new CPQA_AddProductToQuote.AddProductRequest();
+                    addReq.quoteId = masterReq.quoteId;
+                    addReq.productId = Id.valueOf(extracted.value1);
+                    addReq.pricebookId = masterReq.pricebookId;
+                    addReq.currencyCode = masterReq.currencyCode;
+                    addReq.quoteLineAssignments = JSON.serialize(extracted);
+
+                    results.addAll(
+                        CPQA_AddProductToQuote.addProductToQuote(
+                            new List<CPQA_AddProductToQuote.AddProductRequest>{ addReq }
+                        )
+                    );
+                }
+            }
+        }
+        return results;
+    }*/
+
+}
