@@ -1,0 +1,28 @@
+public class blvm_UpdateAccountAddressAction {
+
+     public class AddressInput {
+        @InvocableVariable(label='address Id' required=true)
+        public Id addressId;
+        @InvocableVariable(label='Quote Id' required=true)
+        public Id quoteId;
+    }
+    
+    @InvocableMethod(label='Update Quote With Address' description='Updates the Quote with the selected address.')
+    public static List<String> updateAccountWithAddress(List<AddressInput> inputs) {
+        
+        List<SBQQ__Quote__c> updateQuote = new List<SBQQ__Quote__c>();
+        for (AddressInput input : inputs) {
+            SBQQ__Quote__c quote = [SELECT Id, ATQ_BillTo__c FROM SBQQ__Quote__c WHERE Id = :input.quoteId LIMIT 1];
+            quote.ATQ_BillTo__c = input.addressId;
+            updateQuote.add(quote);
+        }
+        
+        
+        if (!updateQuote.isEmpty()) {
+            update updateQuote;
+            return new List<String>{'The address has been successfully updated on this quote.'};
+                } else {
+                    return new List<String>{ 'No quotes were updated'};
+                        }
+    }
+}
