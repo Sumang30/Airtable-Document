@@ -1,0 +1,126 @@
+public class blvm_ConvertJsonToTextCollection {
+    
+    
+    
+    public class Request {
+        @InvocableVariable(label='JSON Payload' description='The full JSON string containing the object.' required=true)
+        public String jsonPayload;
+
+        @InvocableVariable(label='Key for Array' description='The name of the key that holds the array to be parsed.' required=true)
+        public String keyForArray;
+    }
+
+    @InvocableMethod(label='blvm ConvertJsonToTextCollection' description='Extracts an array from a JSON object by its key and returns each item in a text collection.' category='JSON')
+    public static List<List<String>> parseJsonArrayFromKey(List<Request> requests) {
+        
+        List<List<String>> allResults = new List<List<String>>();
+        
+        System.debug('=== Starting blvm_ConvertJsonToTextCollection ===');
+        System.debug('Incoming Requests: ' + JSON.serialize(requests));
+
+        for (Request req : requests) {
+            List<String> outputCollection = new List<String>();
+			
+            System.debug('Processing Request: JSON Payload = ' + req.jsonPayload);
+            System.debug('Processing Request: Key for Array = ' + req.keyForArray);
+            
+            if (String.isNotBlank(req.jsonPayload) && String.isNotBlank(req.keyForArray)) {
+                try {
+                    Map<String, Object> fullJsonObject = (Map<String, Object>) JSON.deserializeUntyped(req.jsonPayload);
+					System.debug('Deserialized JSON Map: ' + fullJsonObject);	
+                    List<Object> items = (List<Object>) fullJsonObject.get(req.keyForArray);
+                    System.debug('Extracted Items for Key [' + req.keyForArray + ']: ' + items);
+                    if (items != null) {
+                        for (Object item : items) {
+                            outputCollection.add(JSON.serialize(item));
+                        }
+                    }
+                } catch (Exception e) {
+                    throw new AuraHandledException('Failed to parse JSON. Key: ' + req.keyForArray + '. Error: ' + e.getMessage());
+                }
+            }
+            allResults.add(outputCollection);
+        }
+        System.debug('=== Final All Results === ' + allResults);
+        return allResults;
+    }
+}
+    /*
+      public class Request {
+        @InvocableVariable(label='JSON Payload' description='The full JSON string containing the object.' required=true)
+        public String jsonPayload;
+
+        @InvocableVariable(label='Key for Array' description='The name of the key that holds the array to be parsed.' required=true)
+        public String keyForArray;
+
+        @InvocableVariable(label='Quote ID' description='The ID of the Quote to add the product to.' required=true)
+        public Id quoteId;
+
+        @InvocableVariable(label='Pricebook ID' description='The ID of the Pricebook for the quote and product.' required=true)
+        public Id pricebookId;
+
+        @InvocableVariable(label='Currency ISO Code' description='The 3-letter currency ISO code (e.g., USD, EUR).' required=true)
+        public String currencyCode;
+    }
+
+    @InvocableMethod(label='BLVM ConvertJsonToTextCollection' description='Parses JSON and adds products to a quote.')
+    public static void parseJsonAndAddProducts(List<Request> requests) {
+        System.debug('=== Starting BLVM_ConvertJsonToTextCollection ===');
+        System.debug('Incoming Requests: ' + JSON.serialize(requests));
+
+        List<blvm_AddProductToQuote.AddProductRequest> addProductRequests = new List<blvm_AddProductToQuote.AddProductRequest>();
+
+        for (Request req : requests) {
+            try {
+                Map<String, Object> fullJsonObject = (Map<String, Object>) JSON.deserializeUntyped(req.jsonPayload);
+                List<Object> items = (List<Object>) fullJsonObject.get(req.keyForArray);
+
+                if (items != null) {
+                    for (Object item : items) {
+                        String itemJson = JSON.serialize(item);
+
+                        // Extract Product and Segments using your extractor
+                        blvm_JsonValueExtractor.JsonRequest jr = new blvm_JsonValueExtractor.JsonRequest();
+                        system.debug('value of itemJson' + itemJson);
+                        jr.jsonContent = itemJson;
+                        jr.keysToExtract = 'Product,Segments';
+
+                        List<blvm_JsonValueExtractor.JsonResult> jrResults = 
+                            blvm_JsonValueExtractor.extractJsonValues(
+                                new List<blvm_JsonValueExtractor.JsonRequest>{ jr }
+                            );
+
+                        for (blvm_JsonValueExtractor.JsonResult res : jrResults) {
+                            if (String.isNotBlank(res.value1) && String.isNotBlank(res.value2)) {
+                                blvm_AddProductToQuote.AddProductRequest apr = new blvm_AddProductToQuote.AddProductRequest();
+
+                                apr.quoteId = req.quoteId;                
+                                //apr.productId = Id.valueOf(res.value1);   
+                                apr.pricebookId = req.pricebookId;        
+                                apr.currencyCode = req.currencyCode;      
+                                apr.quoteLineAssignments = res.value2;    
+
+                                addProductRequests.add(apr);
+                            } else {
+                                System.debug(LoggingLevel.WARN, 
+                                    'Skipping item due to missing productId or quoteLineAssignments: ' + 
+                                    JSON.serialize(res)
+                                );
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                throw new AuraHandledException(
+                    'Failed to parse JSON for key: ' + req.keyForArray + '. Error: ' + e.getMessage()
+                );
+            }
+        }
+
+        if (!addProductRequests.isEmpty()) {
+            System.debug('Calling blvm_AddProductToQuote with ' + addProductRequests.size() + ' requests');
+            blvm_AddProductToQuote.addProductToQuote(addProductRequests);
+        } else {
+            System.debug('No valid AddProductRequests to process.');
+        }
+    }*/
