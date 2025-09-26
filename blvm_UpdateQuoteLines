@@ -25,6 +25,44 @@ public class blvm_UpdateQuoteLines {
                     }
                 }
             }
+            
+            //***////
+            Boolean isId = false;
+            Set<String> prodIdSet = new Set<String>();
+            for (quoteLineWrapper re : wrapperList) {
+                 system.debug(LOGGINGLEVEL.ERROR,'Request==>+' + re.updateRequest);
+                Map<String, Object> productsProcess =(Map<String, Object>)JSON.deserializeUntyped(re.updateRequest);
+                List<Object> quoteLines = (List<Object>)productsProcess.get('Quote Lines');
+                if(productsProcess != null){
+                    for(Object prodObj : quoteLines){
+                        Map<String, Object> prodInfo = (Map<String, Object>)prodObj;                                             
+                        
+                        String prodId = (String)prodInfo.get('Product');
+                        // Check if product looks like a Salesforce Id
+                        if (prodId != null && (prodId.length() == 15 || prodId.length() == 18) 
+                            && Pattern.matches('^[a-zA-Z0-9]+$', prodId)) {
+                            isId = true;
+                        }
+                        prodIdSet.add(prodId);
+                        system.debug(LOGGINGLEVEL.ERROR,'prodIdSet==>'+prodIdSet);
+                    }
+                }
+            }
+            list<Product2> prodList = new list<Product2>();
+            if(isId == true){
+                prodList = [SELECT id, Name FROM Product2 WHERE Id In: prodIdSet];
+            }else{
+                prodList = [SELECT id, Name FROM Product2 WHERE Name In: prodIdSet];
+            }
+              map<String, String> prodNameVsIdMap = new map<String, String>();
+                if(prodList != null && prodList.size() > 0){
+                    for(Product2 pro :prodList){
+                        prodNameVsIdMap.put(pro.Name, pro.Id);
+                    }
+                    system.debug(LOGGINGLEVEL.ERROR,'prodNameVsIdMap==>'+prodNameVsIdMap);
+                }
+            
+            //**////
 
         list<SBQQ__QuoteLine__c> quoteLineList = [SELECT id, SBQQ__Discount__c, SBQQ__Quote__c, SBQQ__ProductName__c, 
                                                     SBQQ__Quantity__c, SBQQ__Uplift__c, SBQQ__StartDate__c, SBQQ__EndDate__c,
@@ -35,10 +73,10 @@ public class blvm_UpdateQuoteLines {
         map<String, list<SBQQ__QuoteLine__c>> prodNameVsQuoteLineListMap = new map<String, list<SBQQ__QuoteLine__c>>();
         if(quoteLineList != null && quoteLineList.size() > 0){
             for(SBQQ__QuoteLine__c qLine :quoteLineList){
-                if(prodNameVsQuoteLineListMap.get(qLine.SBQQ__ProductName__c) == null){
-                    prodNameVsQuoteLineListMap.put(qLine.SBQQ__ProductName__c, new list<SBQQ__QuoteLine__c>{qLine});
+                if(prodNameVsQuoteLineListMap.get(qLine.SBQQ__Product__c) == null){
+                    prodNameVsQuoteLineListMap.put(qLine.SBQQ__Product__c, new list<SBQQ__QuoteLine__c>{qLine});
                 }else{
-                    prodNameVsQuoteLineListMap.get(qLine.SBQQ__ProductName__c).add(qLine);
+                    prodNameVsQuoteLineListMap.get(qLine.SBQQ__Product__c).add(qLine);
                 }
             }
         }
@@ -53,10 +91,12 @@ public class blvm_UpdateQuoteLines {
         List<SBQQ__QuoteLine__c> updateQuoteLines = new List<SBQQ__QuoteLine__c>();
         if(quoteLines != null && quoteLines.size() > 0){
             
-                updateQuoteLines = helperMethod(quoteLines, prodNameVsQuoteLineListMap);
+                updateQuoteLines = helperMethod(quoteLines, prodNameVsQuoteLineListMap, prodNameVsIdMap);
             }
         try{
             update updateQuoteLines;
+           /* blvm_QuoteCalculator calculator = new blvm_QuoteCalculator();
+            calculator.calculate(updateQuoteLines, 'blvm_SaveAfterCalculateCallback');*/
             outputWrapper outPut = new outputWrapper();
             List<outputWrapper> outPutList = new List<outputWrapper>();
             outPut.success = true;
@@ -115,13 +155,24 @@ public class blvm_UpdateQuoteLines {
         public String message;
     }
 
-    public static List<SBQQ__QuoteLine__c> helperMethod(List<Object> quoteLines, map<String, list<SBQQ__QuoteLine__c>> prodNameVsQuoteLineListMap){
+    public static List<SBQQ__QuoteLine__c> helperMethod(List<Object> quoteLines, map<String, list<SBQQ__QuoteLine__c>> prodNameVsQuoteLineListMap,
+                                                       map<String, String> prodMap){
          List<SBQQ__QuoteLine__c> updateQuoteLines = new List<SBQQ__QuoteLine__c>();
-                    
+                    system.debug(LOGGINGLEVEL.ERROR,'prodNameVsQuoteLineListMap==>'+prodNameVsQuoteLineListMap);
                 for (Object lineObj : quoteLines){
                     Map<String, Object> jsonMap = (Map<String, Object>) lineObj;
                     system.debug(LOGGINGLEVEL.ERROR,'jsonMap==>'+jsonMap);
                     String productId = (String) jsonMap.get('Product');
+                    
+                    ///**///
+                    	if (productId != null && (productId.length() == 15 || productId.length() == 18) 
+                            && Pattern.matches('^[a-zA-Z0-9]+$', productId)) {
+                                system.debug('productId contains Id');
+                         }else{
+                             productId = prodMap.get(productId);   
+                        }
+                    //**///
+                    
                     system.debug(LOGGINGLEVEL.ERROR,'productId==>'+productId);
                     List<SBQQ__QuoteLine__c> quoteLineListToUpdate = prodNameVsQuoteLineListMap.get(productId);
                     System.debug(LOGGINGLEVEL.ERROR,'quoteLineListToUpdate==>' + quoteLineListToUpdate);
